@@ -1,0 +1,1365 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <!-- Kiosk: zákaz přibližování prsty, obsah až k okrajům displeje -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+    <title>Zvířata našeho zookoutku</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+
+    <style>
+        :root {
+            --primary: #2e7d32;
+            --secondary: #558b2f;
+            --accent: #8bc34a;
+            --dark: #1b381e;
+            --light: #f4f9f4;
+            --card-bg: #ffffff;
+            --muted: #55655a;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        html, body { overscroll-behavior: none; }
+
+        body {
+            font-family: 'Poppins', Arial, sans-serif;
+            background: var(--light);
+            color: var(--dark);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            /* Kiosk: bez označování textu, bez menu při dlouhém podržení, bez dvojklepového zoomu */
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+
+        img { -webkit-user-drag: none; }
+        button { font: inherit; color: inherit; }
+        [hidden] { display: none !important; }
+
+        header {
+            background: linear-gradient(135deg, var(--dark), var(--primary));
+            color: #fff;
+            padding: 18px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 24px;
+        }
+        /* Logo školy na bílém podkladu (kresba má bílé pozadí) */
+        .school-logo {
+            flex: none;
+            height: 124px;
+            width: auto;
+            padding: 6px 10px;
+            background: #fff;
+            border-radius: 14px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+        }
+        .header-text { text-align: left; }
+        @media (max-width: 600px) {
+            header { flex-direction: column; gap: 12px; }
+            .header-text { text-align: center; }
+            .school-logo { height: 100px; }
+        }
+        header h1 { font-size: 2.1rem; line-height: 1.2; }
+        header p { font-size: 1.1rem; opacity: 0.9; margin-top: 4px; }
+
+        .main-container {
+            max-width: 1200px;
+            width: 100%;
+            margin: 24px auto;
+            padding: 0 20px;
+            flex: 1;
+        }
+
+        /* ---------- Úvodní strana: dlaždice s fotkami ---------- */
+        .menu-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 18px;
+        }
+
+        .animal-tile {
+            position: relative;
+            display: block;
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            padding: 0;
+            border: 0;
+            border-radius: 18px;
+            overflow: hidden;
+            background: #dfe9df;
+            cursor: pointer;
+            text-align: left;
+            box-shadow: 0 4px 14px rgba(27, 56, 30, 0.14);
+            transition: transform 0.15s ease;
+        }
+        .animal-tile:active { transform: scale(0.97); }
+        .animal-tile:focus-visible { outline: 4px solid var(--accent); outline-offset: 3px; }
+        @media (hover: hover) {
+            .animal-tile:hover { transform: translateY(-4px); }
+        }
+
+        .photo {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        /* Náhradní emoji, když fotka chybí nebo se nenačte */
+        .photo-fallback {
+            position: absolute;
+            inset: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            font-size: 5rem;
+            padding-bottom: 3.5rem;
+        }
+        .no-photo .photo { display: none; }
+        .no-photo .photo-fallback { display: flex; }
+        .photo-missing {
+            position: absolute;
+            top: 8px; left: 8px; right: 8px;
+            display: none;
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: #b3261e;
+            color: #fff;
+            font-size: 0.75rem;
+            line-height: 1.3;
+            word-break: break-all;
+        }
+        .no-photo .photo-missing:not(:empty) { display: block; }
+
+        .photo-label {
+            position: absolute;
+            left: 0; right: 0; bottom: 0;
+            padding: 48px 18px 14px;
+            color: #fff;
+            background: linear-gradient(to top, rgba(14, 32, 16, 0.88), rgba(14, 32, 16, 0));
+        }
+        .photo-label h3 { font-size: 1.3rem; line-height: 1.2; font-weight: 700; }
+        .photo-label p { font-size: 0.95rem; font-style: italic; opacity: 0.92; }
+
+        /* ---------- Profil zvířete ---------- */
+        .topbar {
+            position: sticky;
+            top: 0;
+            z-index: 1100; /* nad ovládáním mapy */
+            padding: 12px 0;
+            background: var(--light);
+        }
+        .back-btn {
+            background: var(--dark);
+            color: #fff;
+            border: none;
+            padding: 14px 26px;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            min-height: 56px;
+        }
+        .back-btn:active { background: var(--primary); }
+
+        .detail-hero {
+            position: relative;
+            aspect-ratio: 21 / 9;
+            border-radius: 18px;
+            overflow: hidden;
+            background: #dfe9df;
+            margin-bottom: 24px;
+        }
+        .detail-hero .photo-fallback { font-size: 7rem; }
+        .detail-hero .photo-label { padding: 70px 28px 22px; }
+        .detail-hero h2 { font-size: 2.3rem; line-height: 1.15; }
+        .detail-hero p { font-size: 1.2rem; font-style: italic; opacity: 0.92; }
+
+        .detail-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+        @media (max-width: 900px) {
+            .detail-grid { grid-template-columns: 1fr; }
+            .detail-hero { aspect-ratio: 16 / 9; }
+        }
+
+        .card {
+            background: var(--card-bg);
+            border-radius: 16px;
+            padding: 24px;
+            box-shadow: 0 4px 16px rgba(27, 56, 30, 0.07);
+        }
+        .card.full-width { grid-column: 1 / -1; }
+        .card h3 {
+            color: var(--primary);
+            font-size: 1.35rem;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid var(--light);
+        }
+        .card p, .card li {
+            font-size: 1.05rem;
+            line-height: 1.6;
+            color: #33413a;
+            margin-bottom: 10px;
+        }
+        .card ul { padding-left: 22px; }
+
+        /* Mapa */
+        .map-container {
+            position: relative;
+            z-index: 0; /* udrží vrstvy mapy pod horní lištou */
+            width: 100%;
+            height: 240px;
+            border-radius: 12px;
+            margin-top: 12px;
+            overflow: hidden;
+            background: #e6eee6;
+        }
+        .map-offline {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 20px;
+            color: var(--muted);
+        }
+
+        /* iNaturalist přes QR kód (v kiosku se nesmí odcházet na jiné weby) */
+        .inat-box {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: #f1f8e9;
+            border-radius: 12px;
+            padding: 14px;
+            margin-top: 14px;
+        }
+        .inat-box p { margin: 0; font-size: 0.98rem; }
+        #inatQr {
+            flex: none;
+            background: #fff;
+            padding: 6px;
+            border-radius: 8px;
+        }
+        #inatQr img, #inatQr canvas { display: block; }
+
+        /* Počasí */
+        .weather-box {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: linear-gradient(135deg, #e8f5e9, #c8e6c9);
+            border-radius: 12px;
+            padding: 14px 16px;
+            margin-top: 14px;
+        }
+        .weather-icon { font-size: 2.8rem; line-height: 1; }
+        .weather-info h4 { font-size: 1.05rem; margin-bottom: 2px; }
+        .weather-info p { margin: 0; font-size: 1rem; }
+
+        /* Zajímavosti */
+        .btn-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+            gap: 12px;
+            margin-top: 12px;
+        }
+        .interactive-btn {
+            background: var(--light);
+            border: 2px solid var(--accent);
+            color: var(--dark);
+            padding: 14px;
+            min-height: 60px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .interactive-btn.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #fff;
+        }
+        .fact-display {
+            margin-top: 14px;
+            background: var(--light);
+            padding: 16px 18px;
+            border-radius: 12px;
+            border-left: 6px solid var(--primary);
+            min-height: 76px;
+            font-size: 1.1rem;
+            line-height: 1.55;
+        }
+
+        /* Video – přehrávač YouTube je zakrytý ochrannou vrstvou
+           a ovládá se vlastními tlačítky, aby se nedalo odejít na youtube.com */
+        .video-player { margin-top: 12px; }
+        .video-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #000;
+        }
+        .video-container iframe,
+        #ytPlayer {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            border: 0;
+            pointer-events: none;
+        }
+        .video-shield {
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            cursor: pointer;
+        }
+        .video-poster {
+            position: absolute;
+            inset: 0;
+            z-index: 3;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #dfe9df;
+            cursor: pointer;
+        }
+        .video-poster.skryty { display: none; }
+        .video-poster .photo-fallback { padding-bottom: 0; }
+        .play-big {
+            position: relative;
+            z-index: 1;
+            width: 96px;
+            height: 96px;
+            border-radius: 50%;
+            border: 4px solid #fff;
+            background: rgba(27, 56, 30, 0.85);
+            color: #fff;
+            font-size: 2.6rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding-left: 8px;
+        }
+        .video-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+        .video-controls button {
+            min-height: 52px;
+            padding: 0 18px;
+            border: none;
+            border-radius: 10px;
+            background: var(--dark);
+            color: #fff;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .video-controls button:active { background: var(--primary); }
+        .video-progress {
+            flex: 1;
+            min-width: 80px;
+            height: 10px;
+            border-radius: 5px;
+            background: #dfe9df;
+            overflow: hidden;
+        }
+        .video-progress div {
+            width: 0;
+            height: 100%;
+            background: var(--primary);
+        }
+        .video-msg {
+            margin-top: 10px;
+            color: #8a1c14;
+            font-size: 0.98rem;
+        }
+        /* Celá obrazovka: video se roztáhne, tlačítka zůstanou dole */
+        .video-player:fullscreen {
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+        }
+        .video-player:fullscreen .video-container { flex: 1; aspect-ratio: auto; }
+        .video-player:-webkit-full-screen {
+            background: #000;
+            display: flex;
+            flex-direction: column;
+            padding: 16px;
+            width: 100%;
+            height: 100%;
+        }
+        .video-player:-webkit-full-screen .video-container { flex: 1; aspect-ratio: auto; }
+
+        footer {
+            text-align: center;
+            padding: 14px;
+            background: var(--dark);
+            color: #fff;
+            font-size: 0.9rem;
+            margin-top: 30px;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .animal-tile { transition: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <!-- Logo školy je vložené přímo v kódu, takže nepotřebuje žádný další soubor.
+             Pro jiné logo stačí místo dlouhého textu v src napsat cestu, např. src="logo.png" -->
+        <img class="school-logo" alt="Logo školy – Škola porozumění" src="data:image/webp;base64,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">
+        <div class="header-text">
+            <h1>🦎 Zvířata našeho zookoutku</h1>
+            <p>Klepni na zvíře a poznej ho zblízka</p>
+        </div>
+    </header>
+
+    <main class="main-container">
+
+        <!-- ÚVODNÍ STRANA S DLAŽDICEMI -->
+        <section id="menu-view">
+            <div class="menu-grid" id="tilesGrid"></div>
+        </section>
+
+        <!-- PROFIL ZVÍŘETE -->
+        <section id="detail-view" hidden>
+            <div class="topbar">
+                <button class="back-btn" id="backBtn" type="button">← Zpět na všechna zvířata</button>
+            </div>
+
+            <div class="detail-hero" id="heroBox">
+                <img class="photo" id="heroImg" alt="">
+                <div class="photo-fallback" id="heroEmoji"></div>
+                <div class="photo-missing"></div>
+                <div class="photo-label">
+                    <h2 id="d-name"></h2>
+                    <p id="d-latin"></p>
+                </div>
+            </div>
+
+            <div class="detail-grid">
+
+                <div class="card">
+                    <h3>O mně</h3>
+                    <p id="d-about"></p>
+                    <p><strong>Co jím:</strong> <span id="d-food"></span></p>
+                </div>
+
+                <div class="card">
+                    <h3>Odkud pocházím</h3>
+                    <p id="d-origin"></p>
+                    <div id="animalMap" class="map-container"></div>
+
+                    <div class="weather-box">
+                        <div class="weather-icon" id="w-icon">⏳</div>
+                        <div class="weather-info">
+                            <h4 id="w-location"></h4>
+                            <p id="w-desc"></p>
+                        </div>
+                    </div>
+
+                    <div class="inat-box" id="inatBox">
+                        <div id="inatQr"></div>
+                        <p>Naskenuj QR kód mobilem a prohlédni si na iNaturalistu fotky a mapu pozorování z celého světa.</p>
+                    </div>
+                </div>
+
+                <div class="card full-width">
+                    <h3>💡 Poznej moje tajemství</h3>
+                    <p>Klepni na tlačítko a dozvíš se zajímavost:</p>
+                    <div class="btn-grid" id="factsButtons"></div>
+                    <div class="fact-display" id="factBox"></div>
+                </div>
+
+                <div class="card" id="videoCard">
+                    <h3>🎥 Video z přírody</h3>
+                    <p>Podívej se, jak žiju ve své domovině.</p>
+                    <div class="video-player" id="videoPlayer">
+                        <div class="video-container">
+                            <div id="ytPlayer"></div>
+                            <div class="video-shield" id="videoShield"></div>
+                            <div class="video-poster" id="videoPoster">
+                                <img class="photo" id="posterImg" alt="">
+                                <div class="photo-fallback" id="posterEmoji"></div>
+                                <div class="play-big">▶</div>
+                            </div>
+                        </div>
+                        <div class="video-controls">
+                            <button type="button" id="vPlay">▶ Přehrát</button>
+                            <button type="button" id="vRestart">↺ Od začátku</button>
+                            <div class="video-progress"><div id="vProgress"></div></div>
+                            <button type="button" id="vSound" hidden>🔇 Zapnout zvuk</button>
+                            <button type="button" id="vFull">⛶ Celá obrazovka</button>
+                        </div>
+                        <p class="video-msg" id="videoMsg" hidden></p>
+                    </div>
+                </div>
+
+                <div class="card" id="projectsCard">
+                    <h3>🔬 Úkoly pro školní projekty</h3>
+                    <p>Tohle můžeš zkoumat a zpracovat do svého projektu:</p>
+                    <ul id="d-projects"></ul>
+                </div>
+
+            </div>
+        </section>
+
+    </main>
+
+    <footer>Zookoutek | interaktivní výukový panel pro žáky</footer>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+    <script>
+        /* =====================================================================
+           NASTAVENÍ
+           ===================================================================== */
+
+        // Po kolika sekundách bez dotyku se kiosk vrátí na úvodní stranu
+        const NECINNOST_SEKUNDY = 120;
+
+        // true = u chybějící fotky se vypíše, jakou cestu stránka hledala.
+        // Až budou všechny fotky vidět, přepněte na false.
+        const DIAGNOSTIKA_FOTEK = true;
+
+        /* =====================================================================
+           DATA O ZVÍŘATECH
+           foto:  cesta k fotce (např. složka "foto" vedle tohoto souboru).
+                  Když fotka chybí, zobrazí se místo ní emoji.
+           video: odkaz na YouTube (např. "https://www.youtube.com/watch?v=XXXXXXXXXXX")
+                  nebo jen ID videa (11 znaků). Žáci se z přehrávače na YouTube nedostanou.
+                  Prázdné "" = karta s videem se nezobrazí.
+           ===================================================================== */
+        const zvirata = [
+            {
+                id: "pagekon",
+                jmeno: "Pagekon řasnatý",
+                latinsky: "Correlophus ciliatus",
+                emoji: "🦎",
+                foto: "foto/pagekon.jpg",
+                inatUrl: "https://www.inaturalist.org/taxa/36852-Correlophus-ciliatus",
+                o_mne: "Jsem noční stromový ještěr z Nové Kaledonie. Dlouho si vědci mysleli, že jsem úplně vyhubený, ale v roce 1994 mě objevili znovu!",
+                potrava: "V přírodě jím hmyz a přezrálé ovoce, v teráriu speciální kaši a cvrčky.",
+                domovina: "Mým domovem jsou deštné pralesy na ostrovech Nové Kaledonie v Tichém oceánu.",
+                lat: -22.2758, lon: 166.458, locName: "Nouméa (Nová Kaledonie)",
+                zajimavosti: [
+                    "Proč „řasnatý“?: Kožní výrůstky nad očima připomínají řasy.",
+                    "Víčka: Nemám oční víčka, oči si čistím dlouhým jazykem.",
+                    "Lepicí prsty: Díky mikroskopickým chloupkům na prstech chodím i hlavou dolů po skle.",
+                    "Ocas: Když ho upustím před dravcem, už mi nikdy nedoroste."
+                ],
+                video: "",
+                projekty: [
+                    "Změřte teplotu a vlhkost v teráriu a porovnejte ji s pralesem.",
+                    "Nakreslete chodidlo ještěra a vysvětlete funkci jeho lamel.",
+                    "Spočítejte měsíční náklady na krmení."
+                ]
+            },
+            {
+                id: "axolotl",
+                jmeno: "Axolotl mexický",
+                latinsky: "Ambystoma mexicanum",
+                emoji: "🐉",
+                foto: "foto/axolotl.jpg",
+                inatUrl: "https://www.inaturalist.org/taxa/26756-Ambystoma-mexicanum",
+                o_mne: "Jsem věčné dítě! Zůstávám v larválním stádiu po celý život a dokážu dorůst ztracené končetiny.",
+                potrava: "Jsem masožravec – žížaly, krevety, mražené krmení, drobné rybky.",
+                domovina: "Pocházím z jezera Xochimilco u města Mexika, kde žiju v chladné vodě kanálů.",
+                lat: 19.256, lon: -99.102, locName: "Xochimilco (Mexiko)",
+                zajimavosti: [
+                    "Regenerace: Doroste mi nejen noha, ale i části srdce nebo míchy!",
+                    "Vnější žábry: Péřovité žábry po stranách hlavy mi slouží k dýchání pod vodou.",
+                    "Neotenie: Dospívám, aniž bych prošel přeměnou na suchozemského mloka."
+                ],
+                video: "",
+                projekty: [
+                    "Sledujte teplotu vody – axolotl nesnáší teplo nad 20 °C.",
+                    "Prozkoumejte princip regenerace tkání u obojživelníků.",
+                    "Zmapujte původní jezero Xochimilco a jeho ohrožení."
+                ]
+            },
+            {
+                id: "zelva",
+                jmeno: "Želva mapová",
+                latinsky: "Graptemys geographica",
+                emoji: "🐢",
+                foto: "foto/zelva.jpg",
+                inatUrl: "https://www.inaturalist.org/taxa/39836-Graptemys-geographica",
+                o_mne: "Jsem vodní želva a své jméno jsem dostala podle žlutých linek na krunýři, které připomínají mapu silnic či řek.",
+                potrava: "Hlemýždi, vodní hmyz, korýši a speciální granule pro želvy.",
+                domovina: "Obývám velké řeky a jezera v Severní Americe (USA a Kanada).",
+                lat: 43.6532, lon: -79.3832, locName: "Ontario (Kanada)",
+                zajimavosti: [
+                    "Krunýř jako mapa: Kresba na mém těle slouží jako skvělé maskování.",
+                    "Pohlavní dimorfismus: Samice jsou mnohem větší než samci.",
+                    "Slunění: Ráda trávím hodiny na vyhřátých kládách nad vodou kvůli vitamínu D."
+                ],
+                video: "",
+                projekty: [
+                    "Jaký význam má UV lampa nad akvateráriem?",
+                    "Porovnejte stavbu těla vodní a suchozemské želvy.",
+                    "Spočítejte, jak rychle rostou mladé želvy."
+                ]
+            },
+            {
+                id: "agama",
+                jmeno: "Agama vousatá",
+                latinsky: "Pogona vitticeps",
+                emoji: "🦎",
+                foto: "foto/agama.jpg",
+                inatUrl: "https://www.inaturalist.org/taxa/36109-Pogona-vitticeps",
+                o_mne: "Jsem přátelská pouštní ještěrka z Austrálie. Umím měnit barvu kůže, a když se rozzlobím, nafouknu si „vous“ pod bradou.",
+                potrava: "Hmyz (cvrčci, švábi) a čerstvá zelená potrava (pampelišky, salát).",
+                domovina: "Suché savany a polopouště ve vnitrozemí Austrálie.",
+                lat: -23.698, lon: 133.8807, locName: "Alice Springs (Austrálie)",
+                zajimavosti: [
+                    "Vousy: Nafouknutím vousu a zčernáním hrdla dávám najevo náladu.",
+                    "Kývání hlavou: Signál dominance nebo pozdrav pro ostatní agamy.",
+                    "Třetí oko: Na temeni hlavy mám temenní oko, které vnímá stín shora."
+                ],
+                video: "",
+                projekty: [
+                    "Navrhněte ideální teplotní gradient v pouštním teráriu.",
+                    "Jaké vitamíny a vápník potřebují plazi k růstu kostí?",
+                    "Zmapujte chování agamy v období zimního klidu."
+                ]
+            },
+            {
+                id: "gekon_madagaskarsky",
+                jmeno: "Gekon madagaskarský",
+                latinsky: "Paroedura picta",
+                emoji: "🦎",
+                foto: "foto/gekon-madagaskarsky.jpg",
+                inatUrl: "https://www.inaturalist.org/taxa/36511-Paroedura-picta",
+                o_mne: "Jsem pozemní noční gekon s krásnou mramorovanou kresbou z Madagaskaru.",
+                potrava: "Cvrčci, mouční červi a jiný drobný hmyz.",
+                domovina: "Suché lesy a křovinaté oblasti na jihu a jihozápadě Madagaskaru.",
+                lat: -23.3516, lon: 43.6855, locName: "Toliara (Madagaskar)",
+                zajimavosti: [
+                    "Noční lovec: Aktivní jsem hlavně za tmy, kdy vyhlížím kořist.",
+                    "Zbarvení: Moje kresba mě chrání před predátory v suchém listí.",
+                    "Zvuky: Umím vydávat tiché cvakavé zvuky."
+                ],
+                video: "",
+                projekty: [
+                    "Jak funguje noční vidění u plazů?",
+                    "Srovnejte vlhkost v pralesním a suchém teráriu.",
+                    "Pozorujte aktivitu zvířete v různých hodinách."
+                ]
+            },
+            {
+                id: "phelsuma",
+                jmeno: "Phelsuma madagaskarská",
+                latinsky: "Phelsuma grandis",
+                emoji: "🦎",
+                foto: "foto/phelsuma.jpg",
+                inatUrl: "https://www.inaturalist.org/taxa/34199-Phelsuma-grandis",
+                o_mne: "Jsem velký, zářivě zelený denní gekon. Žiju vysoko na stromech a miluju sladký nektar a ovoce.",
+                potrava: "Ovocné kaše, nektar, občas hmyz.",
+                domovina: "Deštné lesy a plantáže na severu Madagaskaru.",
+                lat: -12.2787, lon: 49.2917, locName: "Antsiranana (Madagaskar)",
+                zajimavosti: [
+                    "Zářivé barvy: Sytě zelená barva s červenými skvrnami mě v listí dobře maskuje.",
+                    "Denní život: Na rozdíl od většiny gekonů jsem aktivní přes den.",
+                    "Hlasové projevy: Umím vydávat štěkavé zvuky."
+                ],
+                video: "",
+                projekty: [
+                    "Jaký vliv má přímé sluneční světlo a UV záření na barvy plazů?",
+                    "Sestavte jídelníček založený na nektaru a hmyzu.",
+                    "Popište rostliny vhodné do pralesního terária."
+                ]
+            },
+            {
+                id: "osmaci",
+                jmeno: "Osmáci degu",
+                latinsky: "Octodon degus",
+                emoji: "🐹",
+                foto: "foto/osmaci.jpg",
+                inatUrl: "https://www.inaturalist.org/taxa/43770-Octodon-degus",
+                o_mne: "Jsme společenští a velmi zvědaví hlodavci z Chile. Milujeme běhání v kolotoči.",
+                potrava: "Seno, tráva, semínka (pozor, nesmíme nic s obsahem cukru!).",
+                domovina: "Skalnaté svahy And v Chile.",
+                lat: -33.4489, lon: -70.6693, locName: "Santiago (Chile)",
+                zajimavosti: [
+                    "Citlivost na cukr: V přírodě sladké nejíme, naše tělo neumí cukr dobře zpracovat.",
+                    "Ocas se štětečkem: Když nás někdo chytí za ocas, kůže z něj může sklouznout. Proto nás nikdy za ocas nechytej!",
+                    "Písečná koupel: Kožíšek si čistíme v jemném písku místo vody."
+                ],
+                video: "",
+                projekty: [
+                    "Proč osmáci dostávají cukrovku a jak vypadá jejich správná strava?",
+                    "Sestavte bezpečný výběh obohacený o hračky pro hlodavce.",
+                    "Sledujte sociální chování ve skupině osmáků."
+                ]
+            },
+            {
+                id: "uzovka",
+                jmeno: "Užovka červená",
+                latinsky: "Pantherophis guttatus",
+                emoji: "🐍",
+                foto: "foto/uzovka.jpg",
+                inatUrl: "https://www.inaturalist.org/taxa/73931-Pantherophis-guttatus",
+                o_mne: "Jsem klidný a nejedovatý had z jihovýchodu USA s nádherným zbarvením.",
+                potrava: "Hlodavci (myši velké přiměřeně velikosti hada).",
+                domovina: "Borové lesy, pole a opuštěné budovy v jihovýchodních USA.",
+                lat: 32.7765, lon: -79.9311, locName: "Charleston (USA)",
+                zajimavosti: [
+                    "Kmitavý jazyk: Jazykem sbírám pachové stopy ze vzduchu.",
+                    "Způsob lovu: Kořist usmrcuji obtočením a stisknutím, jed nemám.",
+                    "Svlékání: Pravidelně svlékám celou kůži najednou, dokonce i šupinky přes oči."
+                ],
+                video: "",
+                projekty: [
+                    "Jak funguje termoregulace u studenokrevných živočichů?",
+                    "Popište proces svlékání kůže u hadů.",
+                    "Zmapujte přirozený biotop užovek v USA."
+                ]
+            },
+            {
+                id: "zelva_nadherna",
+                jmeno: "Želva nádherná",
+                latinsky: "Trachemys scripta elegans",
+                emoji: "🐢",
+                foto: "foto/zelva-nadherna.jpg",
+                inatUrl: "",
+                o_mne: "Jsem vodní želva ze Severní Ameriky. Poznáš mě podle červené skvrny za okem. Do Evropy mě lidé dováželi jako domácího mazlíčka, a když mě vypouštěli do přírody, začala jsem škodit místním živočichům.",
+                potrava: "Jsem všežravá: mláďata jedí hlavně hmyz, rybky a korýše, dospělé želvy čím dál víc vodní rostliny. V chovu dostávám granule pro vodní želvy a zeleninu.",
+                domovina: "Pocházím z řek, jezer a mokřadů v povodí řeky Mississippi na jihu USA.",
+                lat: 32.35, lon: -90.88, locName: "Řeka Mississippi (USA)",
+                zajimavosti: [
+                    "Červené „ucho“: Za okem mám červenou skvrnu, proto mi Angličané říkají „red-eared slider“.",
+                    "Invazní druh: V Evropské unii mě kvůli škodám v přírodě nesmí nikdo dovážet, prodávat ani rozmnožovat. A nikdy mě nevypouštěj do rybníka!",
+                    "Dlouhé drápy: Samci mají na předních nohou velmi dlouhé drápy, kterými se samici při námluvách „předvádějí“ před hlavou.",
+                    "Teplota rozhoduje: Jestli se z vajíčka vylíhne sameček, nebo samička, záleží na teplotě, při které se vajíčko vyvíjí."
+                ],
+                video: "",
+                projekty: [
+                    "Co je invazní druh? Najděte další invazní živočichy v ČR a zjistěte, jak se k nám dostali.",
+                    "Porovnejte stavbu těla želvy nádherné a suchozemské želvy zelenavé.",
+                    "Proč želva potřebuje vyhřívací místo a UV lampu nad vodou?"
+                ]
+            },
+            {
+                id: "jezek",
+                jmeno: "Ježek bělobřichý",
+                latinsky: "Atelerix albiventris",
+                emoji: "🦔",
+                foto: "foto/jezek.jpg",
+                inatUrl: "",
+                o_mne: "Jsem malý africký ježek, menší než náš ježek z české zahrady. Přes den spím schovaný v úkrytu a v noci vyrážím na lov hmyzu.",
+                potrava: "Hlavně hmyz a jiní bezobratlí. V chovu dostávám krmivo pro ježky, hmyz a kousky vařeného masa.",
+                domovina: "Žiju v suchých savanách a křovinách střední a východní Afriky.",
+                lat: -1.2921, lon: 36.8219, locName: "Keňa (východní Afrika)",
+                zajimavosti: [
+                    "Ostnatá koule: Když se leknu, svinu se do klubíčka a postavím ostny do všech stran.",
+                    "Zvláštní pomazávání: Když ucítím nový zajímavý pach, nadělám si v puse pěnu a roztírám si ji jazykem po ostnech. Vědci zatím přesně nevědí proč.",
+                    "Pozor na zimu: Při nízké teplotě upadám do strnulosti, která je pro mě nebezpečná. Potřebuji stálé teplo.",
+                    "Žádné mléko: Mléko mi nedávej! Neumím trávit mléčný cukr a bolelo by mě břicho."
+                ],
+                video: "",
+                projekty: [
+                    "Porovnejte ježka bělobřichého s naším ježkem západním: velikost, potrava a přezimování.",
+                    "Jak se liší ostny ježka od ostnů dikobraza? Jsou tato zvířata vůbec příbuzná?",
+                    "Proč jsou noční zvířata aktivní právě v noci? Zjistěte, jak ježek vnímá okolí."
+                ]
+            },
+            {
+                id: "zelva_zelenava",
+                jmeno: "Želva zelenavá",
+                latinsky: "Testudo hermanni",
+                emoji: "🐢",
+                foto: "foto/zelva-zelenava.jpg",
+                inatUrl: "",
+                o_mne: "Jsem suchozemská želva z jižní Evropy. Na rozdíl od vodních želv neumím plavat. Mám klenutý krunýř a můžu se dožít přes 50 let.",
+                potrava: "Jsem býložravá: pampelišky, jitrocel, jetel a další luční byliny. Ovoce, pečivo ani maso mi nesvědčí.",
+                domovina: "Žiju na suchých travnatých svazích, v křovinách a řídkých lesích kolem Středozemního moře, například na Balkáně.",
+                lat: 43.5081, lon: 16.4402, locName: "Dalmácie (Chorvatsko)",
+                zajimavosti: [
+                    "Trn na ocasu: Na konci ocasu mám rohovitý trn, podle kterého mě odborníci poznají od jiných druhů želv.",
+                    "Zimní spánek: Na zimu se zahrabu a několik měsíců spím. I v chovu mi musí lidé připravit chladné místo k přezimování.",
+                    "Chráněný druh: V přírodě jsem ohrožená, a proto může být chovaná želva zelenavá jen s úředním dokladem o původu.",
+                    "Letokruhy nefungují: Podle prstenců na krunýři se můj věk spolehlivě určit nedá."
+                ],
+                video: "",
+                projekty: [
+                    "Porovnejte suchozemskou želvu zelenavou s vodní želvou nádhernou: krunýř, nohy a potrava.",
+                    "Sestavte jídelníček z bylin, které rostou kolem školy, a ověřte, které jsou pro želvu vhodné.",
+                    "Jak probíhá zimní spánek a jak se na něj želva v chovu připravuje?"
+                ]
+            }
+        ];
+
+        /* =====================================================================
+           POMOCNÉ FUNKCE
+           ===================================================================== */
+        const $ = id => document.getElementById(id);
+
+        function escapeHtml(text) {
+            return String(text).replace(/[&<>"']/g, c => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[c]));
+        }
+
+        // Upraví cestu zapsanou "po windowsovsku" (zpětná lomítka, C:\...)
+        function upravCestu(cesta) {
+            let c = String(cesta).trim().replace(/\\/g, '/');
+            if (/^[A-Za-z]:\//.test(c)) c = 'file:///' + c;
+            return c;
+        }
+
+        // Varianty názvu, které se zkusí postupně (jiná přípona, velká písmena,
+        // dvojitá přípona typu "pagekon.jpg.jpg", kterou Windows rád schová)
+        function variantyCesty(cesta) {
+            const c = upravCestu(cesta);
+            const bezPripony = c.replace(/\.[a-z0-9]+$/i, '');
+            const pripony = ['.jpg', '.jpeg', '.png', '.webp', '.JPG', '.JPEG', '.PNG', '.WEBP'];
+            const varianty = [c];
+            pripony.forEach(p => varianty.push(bezPripony + p));
+            ['.jpg', '.jpeg', '.png'].forEach(p => varianty.push(c + p));
+            return [...new Set(varianty)];
+        }
+
+        // Nastaví fotku; když se žádná varianta nenačte, ukáže se emoji
+        function nastavFoto(obal, img, z) {
+            obal.classList.remove('no-photo');
+            const info = obal.querySelector('.photo-missing');
+            if (info) info.textContent = '';
+
+            if (!z.foto) {
+                img.removeAttribute('src');
+                obal.classList.add('no-photo');
+                if (info && DIAGNOSTIKA_FOTEK) info.textContent = 'U tohoto zvířete není vyplněné pole foto';
+                return;
+            }
+
+            const varianty = variantyCesty(z.foto);
+            let pokus = 0;
+            img.alt = z.jmeno;
+            img.onerror = () => {
+                pokus++;
+                if (pokus < varianty.length) {
+                    img.src = varianty[pokus];
+                } else {
+                    obal.classList.add('no-photo');
+                    if (info && DIAGNOSTIKA_FOTEK) info.textContent = 'Fotka nenalezena: ' + upravCestu(z.foto);
+                }
+            };
+            img.src = varianty[0];
+        }
+
+        // Z odkazu na YouTube (nebo samotného ID) vytáhne ID videa
+        function youtubeId(v) {
+            if (!v) return '';
+            const m = v.match(/(?:embed\/|v=|youtu\.be\/|shorts\/)([\w-]{11})/);
+            if (m) return m[1];
+            return /^[\w-]{11}$/.test(v) ? v : '';
+        }
+
+        /* =====================================================================
+           ÚVODNÍ STRANA – DLAŽDICE
+           ===================================================================== */
+        const grid = $('tilesGrid');
+        zvirata.forEach(z => {
+            const tile = document.createElement('button');
+            tile.type = 'button';
+            tile.className = 'animal-tile';
+            tile.innerHTML = `
+                <img class="photo" loading="lazy" decoding="async" alt="">
+                <div class="photo-fallback">${z.emoji}</div>
+                <div class="photo-missing"></div>
+                <div class="photo-label">
+                    <h3>${escapeHtml(z.jmeno)}</h3>
+                    <p>${escapeHtml(z.latinsky)}</p>
+                </div>`;
+            nastavFoto(tile, tile.querySelector('img'), z);
+            tile.addEventListener('click', () => otevriProfil(z.id));
+            grid.appendChild(tile);
+        });
+
+        /* =====================================================================
+           PROFIL ZVÍŘETE
+           ===================================================================== */
+        function otevriProfil(id) {
+            const z = zvirata.find(item => item.id === id);
+            if (!z) return;
+
+            $('menu-view').hidden = true;
+            $('detail-view').hidden = false;
+            window.scrollTo(0, 0);
+
+            // Hlavní fotka a jméno
+            nastavFoto($('heroBox'), $('heroImg'), z);
+            $('heroEmoji').textContent = z.emoji;
+            $('d-name').textContent = z.jmeno;
+            $('d-latin').textContent = z.latinsky;
+
+            $('d-about').textContent = z.o_mne;
+            $('d-food').textContent = z.potrava;
+            $('d-origin').textContent = z.domovina;
+
+            // Zajímavosti
+            const btnBox = $('factsButtons');
+            const factBox = $('factBox');
+            btnBox.innerHTML = '';
+            z.zajimavosti.forEach((text, i) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'interactive-btn' + (i === 0 ? ' active' : '');
+                btn.textContent = text.split(':')[0] || `Zajímavost ${i + 1}`;
+                btn.addEventListener('click', () => {
+                    factBox.textContent = text;
+                    btnBox.querySelectorAll('.interactive-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                });
+                btnBox.appendChild(btn);
+            });
+            factBox.textContent = z.zajimavosti[0] || '';
+
+            // Video – jen když je vyplněné
+            pripravVideo(z);
+
+            // Projekty
+            const projList = $('d-projects');
+            projList.innerHTML = '';
+            z.projekty.forEach(p => {
+                const li = document.createElement('li');
+                li.textContent = p;
+                projList.appendChild(li);
+            });
+            $('projectsCard').hidden = z.projekty.length === 0;
+
+            // QR kód na iNaturalist
+            ukazQr(z.inatUrl || `https://www.inaturalist.org/taxa/search?q=${encodeURIComponent(z.latinsky)}`);
+
+            // Mapa až po zobrazení profilu, aby znala svou velikost
+            requestAnimationFrame(() => ukazMapu(z));
+
+            nactiPocasi(z);
+        }
+
+        function ukazMenu() {
+            zrusVideo(); // zastaví přehrávané video
+            ukonciCelouObrazovku();
+            $('detail-view').hidden = true;
+            $('menu-view').hidden = false;
+            window.scrollTo(0, 0);
+        }
+
+        $('backBtn').addEventListener('click', ukazMenu);
+
+        /* =====================================================================
+           VIDEO Z YOUTUBE BEZ MOŽNOSTI ODEJÍT NA YOUTUBE
+           Přehrávač je zakrytý průhlednou vrstvou, takže žádné klepnutí
+           nedorazí na logo, název ani doporučená videa. Ovládá se tlačítky pod ním.
+           ===================================================================== */
+        let ytApiSlib = null;
+        let prehravac = null;
+        let prehravacPripraven = false;
+        let aktualniVideo = '';
+        let prubehCasovac = null;
+        let pojistkaSpusteni = null;
+        let pripravaCasovac = null;
+
+        function zpravaNelzeSpustit() {
+            if (location.protocol === 'file:') {
+                return 'Video z YouTube nejde přehrát, protože je stránka otevřená přímo ze souboru ' +
+                       '(adresa začíná file://). YouTube vyžaduje, aby stránka běžela z webové adresy.';
+            }
+            return 'Přehrávač YouTube se nepodařilo spustit. Zkontroluj připojení k internetu.';
+        }
+
+        // Když přehrávač ještě není připravený, řekneme proč, místo aby se nic nedělo
+        function prehravacNeniPripraven() {
+            if (prehravac && prehravacPripraven) return false;
+            if ($('videoMsg').hidden) zpravaVidea('Video se ještě načítá, zkus to za chvilku.');
+            return true;
+        }
+
+        function nactiYouTubeApi() {
+            if (ytApiSlib) return ytApiSlib;
+            ytApiSlib = new Promise((resolve, reject) => {
+                if (window.YT && window.YT.Player) { resolve(); return; }
+                const predchozi = window.onYouTubeIframeAPIReady;
+                window.onYouTubeIframeAPIReady = () => { if (predchozi) predchozi(); resolve(); };
+                const skript = document.createElement('script');
+                skript.src = 'https://www.youtube.com/iframe_api';
+                skript.onerror = () => { ytApiSlib = null; reject(new Error('YouTube API')); };
+                document.head.appendChild(skript);
+            });
+            return ytApiSlib;
+        }
+
+        function zpravaVidea(text) {
+            $('videoMsg').textContent = text;
+            $('videoMsg').hidden = !text;
+        }
+
+        function ukazPlakat(ano) {
+            $('videoPoster').classList.toggle('skryty', !ano);
+        }
+
+        function nastavTlacitko(hraje) {
+            $('vPlay').textContent = hraje ? '❚❚ Pozastavit' : '▶ Přehrát';
+        }
+
+        function videoHraje() {
+            try { return !!prehravac && prehravac.getPlayerState() === 1; }
+            catch (e) { return false; }
+        }
+
+        function chybaVidea(kod) {
+            if (kod === 101 || kod === 150) return 'Autor tohoto videa nepovolil jeho přehrávání mimo YouTube. Vyberte prosím jiné video.';
+            if (kod === 100) return 'Video už na YouTube neexistuje nebo je soukromé.';
+            if (kod === 2) return 'Odkaz na video je chybný. Zkontrolujte ho v kódu.';
+            if (kod === 153) return 'YouTube odmítl přehrát video ze stránky otevřené přímo ze souboru. Stránku je potřeba spouštět z webové adresy.';
+            return 'Video se teď nepodařilo přehrát.';
+        }
+
+        function zrusVideo() {
+            aktualniVideo = '';
+            prehravacPripraven = false;
+            clearInterval(prubehCasovac);
+            clearTimeout(pojistkaSpusteni);
+            clearTimeout(pripravaCasovac);
+            if (prehravac) {
+                try { prehravac.destroy(); } catch (e) {}
+                prehravac = null;
+            }
+            // Vrátí prázdné místo pro nový přehrávač
+            const kontejner = document.querySelector('.video-container');
+            const stary = $('ytPlayer');
+            if (stary) stary.remove();
+            const novy = document.createElement('div');
+            novy.id = 'ytPlayer';
+            kontejner.insertBefore(novy, kontejner.firstChild);
+            $('vProgress').style.width = '0';
+            $('vSound').hidden = true;
+            nastavTlacitko(false);
+            ukazPlakat(true);
+        }
+
+        async function pripravVideo(z) {
+            zrusVideo();
+            zpravaVidea('');
+            const id = youtubeId(z.video);
+            $('videoCard').hidden = !id;
+            if (!id) return;
+
+            aktualniVideo = id;
+            nastavFoto($('videoPoster'), $('posterImg'), z);
+            $('posterEmoji').textContent = z.emoji;
+
+            try {
+                await nactiYouTubeApi();
+            } catch (e) {
+                zpravaVidea('Video se nepodařilo načíst. Zkontroluj připojení k internetu.');
+                return;
+            }
+            if (aktualniVideo !== id) return; // mezitím se otevřelo jiné zvíře
+
+            prehravac = new YT.Player('ytPlayer', {
+                host: 'https://www.youtube-nocookie.com',
+                videoId: id,
+                playerVars: {
+                    controls: 0, disablekb: 1, fs: 0, rel: 0,
+                    iv_load_policy: 3, modestbranding: 1, playsinline: 1
+                },
+                events: {
+                    onReady: () => {
+                        clearTimeout(pripravaCasovac);
+                        prehravacPripraven = true;
+                        zpravaVidea('');
+                    },
+                    onStateChange: e => zmenaStavu(e.data),
+                    onError: e => {
+                        ukazPlakat(true);
+                        nastavTlacitko(false);
+                        zpravaVidea(chybaVidea(e.data));
+                    }
+                }
+            });
+
+            // Když se přehrávač do 8 sekund neohlásí, vypíšeme důvod
+            clearTimeout(pripravaCasovac);
+            pripravaCasovac = setTimeout(() => {
+                if (!prehravacPripraven && aktualniVideo === id) zpravaVidea(zpravaNelzeSpustit());
+            }, 8000);
+        }
+
+        function zmenaStavu(stav) {
+            if (stav === 1 || stav === 3) {          // hraje / načítá se
+                clearTimeout(pojistkaSpusteni);
+                ukazPlakat(false);
+                nastavTlacitko(stav === 1);
+                clearInterval(prubehCasovac);
+                prubehCasovac = setInterval(aktualizujPrubeh, 500);
+            } else if (stav === 2) {                 // pozastaveno
+                nastavTlacitko(false);
+            } else if (stav === 0) {                 // konec – zakryje doporučená videa
+                clearInterval(prubehCasovac);
+                $('vProgress').style.width = '0';
+                nastavTlacitko(false);
+                ukazPlakat(true);
+            }
+        }
+
+        function aktualizujPrubeh() {
+            try {
+                const delka = prehravac.getDuration();
+                const cas = prehravac.getCurrentTime();
+                if (delka > 0) $('vProgress').style.width = (cas / delka * 100) + '%';
+            } catch (e) {}
+        }
+
+        function spust() {
+            if (prehravacNeniPripraven()) return;
+            zpravaVidea('');
+            prehravac.playVideo();
+            // Některé tablety (hlavně iPad) nedovolí spustit video se zvukem
+            // bez dotyku přímo v přehrávači. Pak ho spustíme ztlumené
+            // a nabídneme tlačítko pro zapnutí zvuku.
+            clearTimeout(pojistkaSpusteni);
+            pojistkaSpusteni = setTimeout(() => {
+                if (!prehravac) return;
+                const st = prehravac.getPlayerState();
+                if (st !== 1 && st !== 3) {
+                    prehravac.mute();
+                    prehravac.playVideo();
+                    $('vSound').hidden = false;
+                }
+            }, 2500);
+        }
+
+        function prepniPrehravani() {
+            if (prehravacNeniPripraven()) return;
+            if (videoHraje()) prehravac.pauseVideo();
+            else spust();
+        }
+
+        $('vPlay').addEventListener('click', prepniPrehravani);
+        $('videoShield').addEventListener('click', prepniPrehravani);
+        $('videoPoster').addEventListener('click', spust);
+        $('vRestart').addEventListener('click', () => {
+            if (prehravacNeniPripraven()) return;
+            prehravac.seekTo(0, true);
+            spust();
+        });
+        $('vSound').addEventListener('click', () => {
+            if (!prehravac) return;
+            prehravac.unMute();
+            prehravac.setVolume(100);
+            $('vSound').hidden = true;
+        });
+
+        // Celá obrazovka (jen na zařízeních, která ji podporují)
+        function jeCelaObrazovka() {
+            return document.fullscreenElement || document.webkitFullscreenElement;
+        }
+        function ukonciCelouObrazovku() {
+            if (!jeCelaObrazovka()) return;
+            (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+        }
+        (function () {
+            const hrac = $('videoPlayer');
+            const pozadavek = hrac.requestFullscreen || hrac.webkitRequestFullscreen;
+            if (!pozadavek) { $('vFull').hidden = true; return; }
+            $('vFull').addEventListener('click', () => {
+                if (jeCelaObrazovka()) ukonciCelouObrazovku();
+                else pozadavek.call(hrac);
+            });
+        })();
+
+        /* =====================================================================
+           MAPA (Leaflet + OpenStreetMap)
+           ===================================================================== */
+        let mapa = null;
+        let znacka = null;
+
+        // Mapové podklady od Esri – fungují bez klíče i ze souboru otevřeného z disku.
+        // (OpenStreetMap blokuje stránky otevřené ze souboru, CARTO vyžaduje klíč.)
+        // Když první podklad nefunguje, mapa sama přepne na druhý.
+        const MAPOVE_PODKLADY = [
+            {
+                url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+                volby: { maxZoom: 18, attribution: 'Podklad © Esri' }
+            },
+            {
+                url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+                volby: { maxZoom: 18, attribution: 'Podklad © Esri' }
+            }
+        ];
+        let aktivniPodklad = null;
+
+        function pridejPodklad(index) {
+            const podklad = MAPOVE_PODKLADY[index];
+            if (!podklad) return;
+            if (aktivniPodklad) mapa.removeLayer(aktivniPodklad);
+            let chyby = 0;
+            aktivniPodklad = L.tileLayer(podklad.url, podklad.volby)
+                .on('tileerror', () => {
+                    chyby++;
+                    if (chyby === 3) pridejPodklad(index + 1);
+                })
+                .addTo(mapa);
+        }
+
+        function ukazMapu(z) {
+            const box = $('animalMap');
+            if (typeof L === 'undefined') {
+                box.classList.add('map-offline');
+                box.textContent = 'Mapu se nepodařilo načíst. Zkontroluj připojení k internetu.';
+                return;
+            }
+            if (!mapa) {
+                mapa = L.map(box, { scrollWheelZoom: false });
+                mapa.attributionControl.setPrefix(false);
+                pridejPodklad(0);
+                znacka = L.marker([z.lat, z.lon]).addTo(mapa);
+            }
+            mapa.invalidateSize();
+            mapa.setView([z.lat, z.lon], 5);
+            znacka.setLatLng([z.lat, z.lon])
+                  .bindPopup(`<b>${escapeHtml(z.jmeno)}</b><br>${escapeHtml(z.locName)}`)
+                  .openPopup();
+        }
+
+        /* =====================================================================
+           QR KÓD
+           ===================================================================== */
+        function ukazQr(url) {
+            const box = $('inatQr');
+            box.innerHTML = '';
+            if (typeof QRCode === 'undefined') {
+                $('inatBox').hidden = true;
+                return;
+            }
+            $('inatBox').hidden = false;
+            new QRCode(box, {
+                text: url,
+                width: 132,
+                height: 132,
+                colorDark: '#1b381e',
+                colorLight: '#ffffff',
+                correctLevel: QRCode.CorrectLevel.M
+            });
+        }
+
+        /* =====================================================================
+           POČASÍ (Open-Meteo, bez klíče)
+           ===================================================================== */
+        function popisPocasi(kod, jeDen) {
+            if (kod === 0) return [jeDen ? '☀️' : '🌙', 'Jasno'];
+            if (kod <= 2) return [jeDen ? '🌤️' : '🌙', 'Polojasno'];
+            if (kod === 3) return ['☁️', 'Zataženo'];
+            if (kod === 45 || kod === 48) return ['🌫️', 'Mlha'];
+            if (kod >= 51 && kod <= 57) return ['🌦️', 'Mrholení'];
+            if (kod >= 61 && kod <= 67) return ['🌧️', 'Déšť'];
+            if (kod >= 71 && kod <= 77) return ['❄️', 'Sněžení'];
+            if (kod >= 80 && kod <= 82) return ['🌦️', 'Přeháňky'];
+            if (kod === 85 || kod === 86) return ['🌨️', 'Sněhové přeháňky'];
+            if (kod >= 95) return ['⛈️', 'Bouřka'];
+            return ['🌡️', 'Aktuálně'];
+        }
+
+        let pocasiPozadavek = 0;
+
+        async function nactiPocasi(z) {
+            const muj = ++pocasiPozadavek; // starší odpověď nesmí přepsat novější zvíře
+            $('w-location').textContent = `Počasí právě teď: ${z.locName}`;
+            $('w-desc').textContent = 'Načítám aktuální počasí…';
+            $('w-icon').textContent = '⏳';
+
+            try {
+                const ctrl = new AbortController();
+                const limit = setTimeout(() => ctrl.abort(), 8000);
+                const url = `https://api.open-meteo.com/v1/forecast?latitude=${z.lat}&longitude=${z.lon}` +
+                            `&current=temperature_2m,relative_humidity_2m,weather_code,is_day&timezone=auto`;
+                const odpoved = await fetch(url, { signal: ctrl.signal });
+                clearTimeout(limit);
+                if (!odpoved.ok) throw new Error('HTTP ' + odpoved.status);
+                const data = await odpoved.json();
+                if (muj !== pocasiPozadavek) return;
+
+                const c = data.current;
+                const [ikona, popis] = popisPocasi(c.weather_code, c.is_day === 1);
+                const cas = c.time ? c.time.slice(11, 16) : '';
+                $('w-icon').textContent = ikona;
+                $('w-desc').innerHTML =
+                    `${popis}, <strong>${Math.round(c.temperature_2m)} °C</strong>, vlhkost <strong>${c.relative_humidity_2m} %</strong>` +
+                    (cas ? `<br>Místní čas: ${cas}` : '');
+            } catch (e) {
+                if (muj !== pocasiPozadavek) return;
+                $('w-icon').textContent = '📡';
+                $('w-desc').textContent = 'Počasí se teď nepodařilo načíst. Zkontroluj připojení k internetu.';
+            }
+        }
+
+        /* =====================================================================
+           KIOSK REŽIM
+           ===================================================================== */
+
+        // Odkazy nesmí návštěvníka odvést pryč z atlasu
+        document.addEventListener('click', e => {
+            if (e.target.closest('a[href]')) e.preventDefault();
+        });
+
+        // Bez kontextového menu při dlouhém podržení a bez přibližování na iPadu
+        document.addEventListener('contextmenu', e => e.preventDefault());
+        document.addEventListener('gesturestart', e => e.preventDefault());
+
+        // Automatický návrat na úvodní stranu po nečinnosti
+        let casovac = null;
+        let posledniDotyk = Date.now();
+
+        function zaznamenejAktivitu() {
+            posledniDotyk = Date.now();
+            clearTimeout(casovac);
+            casovac = setTimeout(kontrolaNecinnosti, NECINNOST_SEKUNDY * 1000);
+        }
+
+        function kontrolaNecinnosti() {
+            // Když právě běží video, počkáme ještě,
+            // nejvýš ale 10 minut od posledního dotyku
+            if (videoHraje() && Date.now() - posledniDotyk < 10 * 60 * 1000) {
+                casovac = setTimeout(kontrolaNecinnosti, 30 * 1000);
+                return;
+            }
+            if (!$('detail-view').hidden) ukazMenu();
+            ukonciCelouObrazovku();
+            window.scrollTo(0, 0);
+        }
+
+        ['pointerdown', 'touchstart', 'keydown', 'scroll', 'wheel'].forEach(udalost =>
+            window.addEventListener(udalost, zaznamenejAktivitu, { passive: true })
+        );
+        zaznamenejAktivitu();
+    </script>
+</body>
+</html>
